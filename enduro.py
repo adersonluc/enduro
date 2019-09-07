@@ -20,7 +20,7 @@ class DQLAgent:
         self.learning_rate = 0.1
         self.gamma = 0.90
         self.model = self._build_model()
-        self.memory = deque(maxlen=2000) 
+        self.memory = deque(maxlen=2000)
 
     def save_model(self, filename):
         self.model.save_weights(filename)
@@ -52,8 +52,8 @@ class DQLAgent:
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-    def act(self, state):
-        if np.random.rand() <= self.epsilon:
+    def act(self, state, play=False):
+        if np.random.rand() <= self.epsilon and not play:
             return np.random.randint(0, self.action_size)
         action_values = self.model.predict(state)
         return np.argmax(action_values[0])
@@ -70,36 +70,57 @@ class DQLAgent:
             target_f[0][action] = target
             self.model.fit(state, target_f, epochs=1, verbose=0)
 
+import sys
+
 if __name__ == '__main__':
-    epochs = 100
-    env = gym.make('Enduro-v0')
-    state_shape = list(np.shape(env.reset()))
-    state_shape[1] = state_shape[1]*2
-    agent = DQLAgent(state_shape=state_shape, action_size=env.action_space.n)
-    agent.load_model()
 
-    for e in range(epochs):
+    if not 'play' in sys.argv:
+        epochs = 100
+        env = gym.make('Enduro-v0')
+        state_shape = list(np.shape(env.reset()))
+        state_shape[1] = state_shape[1]*3
+        agent = DQLAgent(state_shape=state_shape, action_size=env.action_space.n)
+        agent.load_model()
+
+        for e in range(epochs):
+            state = env.reset()
+            state = np.concatenate((np.zeros(np.shape(state)), np.zeros(np.shape(state)), state), axis=1)
+            state = np.expand_dims(state, axis=0)
+
+            total_reward = 0
+            while True:
+                #env.render()
+                action = agent.act(state)
+                next_state, reward, done, info = env.step(action)
+                next_state = np.concatenate((np.delete(state[0], slice(0,160), axis=1), next_state), axis=1)
+                next_state = np.expand_dims(next_state, axis=0)
+                agent.remember(state, action, reward, next_state, done)
+                #total_reward += reward
+                state = next_state
+                if done:
+                    #print('play {}/{}, score = {}'.format(e, epochs, total_reward))
+                    break
+
+            agent.replay()
+
+            if e % 10 == 0:
+                agent.save_model('save/modelo_enduro'+str(int(time.time()))+'.h5')
+                print('Model saved')
+
+            gc.collect()
+
+    else:
+        env = gym.make('Enduro-v0')
+        state_shape = list(np.shape(env.reset()))
+        state_shape[1] = state_shape[1]*3
+        agent = DQLAgent(state_shape=state_shape, action_size=env.action_space.n)
+        agent.load_model()
         state = env.reset()
-        state = np.concatenate((np.zeros(np.shape(state)), state), axis=1)
+        state = np.concatenate((np.zeros(np.shape(state)), np.zeros(np.shape(state)), state), axis=1)
         state = np.expand_dims(state, axis=0)
-
-        total_reward = 0
         while True:
             env.render()
-            action = agent.act(state)
+            action = agent.act(state, play=True)
             next_state, reward, done, info = env.step(action)
             next_state = np.concatenate((np.delete(state[0], slice(0,160), axis=1), next_state), axis=1)
             next_state = np.expand_dims(next_state, axis=0)
-            agent.remember(state, action, reward, next_state, done)
-            total_reward += reward
-            state = next_state
-            if done:
-                print('play {}/{}, score = {}'.format(e, epochs, total_reward))
-                break
-
-        agent.replay()
-    
-        if e % 10 == 0:
-            agent.save_model('save/modelo_enduro'+str(int(time.time()))+'.h5')
-
-        gc.collect()
